@@ -1,0 +1,6 @@
+{
+  "lmStudioUrl": "http://192.168.205.202:1234",
+  "apiToken": "",
+  "model": "qwen2.5-coder-1.5b-instruct",
+  "workspace": "d:\\ia local"
+}

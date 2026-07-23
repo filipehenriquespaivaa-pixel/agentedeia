@@ -1,0 +1,10 @@
+{
+  "name": "agente-ia",
+  "version": "1.0.0",
+  "description": "Agente de IA local com ferramentas - sem dependências externas",
+  "main": "index.js",
+  "type": "module",
+  "scripts": {
+    "start": "node index.js"
+  }
+}
