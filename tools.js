@@ -21,6 +21,35 @@ const MEMORY_FILE = path.join(process.cwd(), 'memoria.json');
 const CATEGORIAS_VALIDAS = ['fatos', 'preferencias', 'projetos', 'notas'];
 const MEMORY_PADRAO = { fatos: [], preferencias: {}, projetos: [], notas: [] };
 
+// ============ INICIALIZAÇÃO AUTOMÁTICA ============
+// Verifica e cria pasta de projetos e arquivo de memória se não existirem
+function inicializarEstrutura() {
+  const pastaProjetos = path.join(WORKSPACE, 'projetos_ia');
+  
+  // Criar pasta de projetos se não existir
+  if (!fs.existsSync(pastaProjetos)) {
+    try {
+      fs.mkdirSync(pastaProjetos, { recursive: true });
+      console.log(`✓ Pasta de projetos criada: ${pastaProjetos}`);
+    } catch (e) {
+      console.error(`✗ Erro ao criar pasta de projetos: ${e.message}`);
+    }
+  }
+  
+  // Criar arquivo de memória se não existir
+  if (!fs.existsSync(MEMORY_FILE)) {
+    try {
+      saveMemory(structuredClone(MEMORY_PADRAO));
+      console.log(`✓ Arquivo de memória criado: ${MEMORY_FILE}`);
+    } catch (e) {
+      console.error(`✗ Erro ao criar arquivo de memória: ${e.message}`);
+    }
+  }
+}
+
+// Executa a inicialização automaticamente ao importar o módulo
+inicializarEstrutura();
+
 function loadMemory() {
   if (!fs.existsSync(MEMORY_FILE)) return structuredClone(MEMORY_PADRAO);
   try {
