@@ -67,7 +67,7 @@ function carregarProjeto(nomeOuChave) {
   return null;
 }
 
-function criarProjeto(nome, pedidoUsuario, arquivosComDescricao, logica, resultadoEsperado, tamanho) {
+function criarProjeto(nome, pedidoUsuario, arquivosComDescricao, logica, resultadoEsperado, tamanho, tipo) {
   const chave = gerarChave(nome);
   const etapas = arquivosComDescricao.map((arq, idx) => ({
     id: `etapa_${idx + 1}`,
@@ -86,6 +86,7 @@ function criarProjeto(nome, pedidoUsuario, arquivosComDescricao, logica, resulta
     logica,
     resultadoEsperado,
     tamanho: tamanho || undefined,
+    tipo: tipo || undefined,
     decicoes: [],
     abandonado: false
   };
