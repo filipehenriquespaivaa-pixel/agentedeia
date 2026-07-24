@@ -1,7 +1,4 @@
 import readline from 'readline';
-import fs from 'fs';
-import path from 'path';
-import { fileURLToPath } from 'url';
 import { tools, executeTool, setConfirmador } from './tools.js';
 import { MODEL, LM_STUDIO_BASE, getHeaders, agenteLoop } from './agente.js';
 
@@ -131,12 +128,6 @@ function drawLayout() {
 // ============ ESTADO LOCAL DO CLI ============
 let conversationHistory = [];
 
-// Variáveis de inicialização (serão usadas após conectar ao LM Studio)
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-const PASTA_PROJETOS = path.join(__dirname, 'projetos_ia');
-const ARQUIVO_MEMORIA = path.join(__dirname, 'memoria.json');
-
 // Callback pra mostrar cada tool call na tela, chamado pelo agenteLoop compartilhado
 function aoChamarTool(funcName, funcArgs, status, resultado) {
   if (funcName === 'planejamento') {
@@ -174,119 +165,95 @@ function formatResponse(text) {
 }
 
 async function main() {
+  drawLayout();
+  
+  // Verificar conexão
   try {
-    // ============ 1º: VERIFICAR CONEXÃO COM LM STUDIO ============
-    try {
-      const res = await fetch(LM_STUDIO_BASE + '/v1/models', { headers: getHeaders() });
-      if (!res.ok) throw new Error();
-      const data = await res.json();
-      const models = data.data || [];
-      
-      // Conectado com sucesso, continua para criar arquivos...
-    } catch (erro) {
-      clearScreen();
-      console.log(`\n${c.red}✗ ERRO: LM Studio não conectado${c.reset}`);
-      console.log(`${c.dim}URL configurada: ${LM_STUDIO_BASE}${c.reset}`);
-      console.log(`${c.dim}Verifique se o servidor local do LM Studio está ativo${c.reset}`);
-      console.log(`\n${c.yellow}Pressione Enter para sair...${c.reset}`);
-      await new Promise(resolve => process.stdin.once('data', resolve));
-      process.exit(1);
-    }
-
-    // ============ 2º: VERIFICAR E CRIAR PASTA/ARQUIVO DE MEMÓRIA ============
-    if (!fs.existsSync(PASTA_PROJETOS)) {
-      fs.mkdirSync(PASTA_PROJETOS, { recursive: true });
-    }
-
-    if (!fs.existsSync(ARQUIVO_MEMORIA)) {
-      const memoriaInicial = { fatos: [], preferencias: [], projetos: [], notas: [] };
-      fs.writeFileSync(ARQUIVO_MEMORIA, JSON.stringify(memoriaInicial, null, 2));
-    }
-
-    // ============ 3º: DESENHAR LAYOUT APÓS CRIAR ARQUIVOS ============
-    drawLayout();
+    const res = await fetch(LM_STUDIO_BASE + '/v1/models', { headers: getHeaders() });
+    if (!res.ok) throw new Error();
+    const data = await res.json();
+    const models = data.data || [];
+    
     const { rows } = getTerminalSize();
     moveCursor(rows, 1);
-    process.stdout.write(`${c.dim}  Agente pronto. Digite sua mensagem ou /ajuda${c.reset}`);
+    process.stdout.write(`  ${c.green}✓${c.reset} ${c.dim}Conectado: ${models.length} modelos${c.reset}`);
+  } catch {
+    const { rows } = getTerminalSize();
+    moveCursor(rows, 1);
+    process.stdout.write(`  ${c.red}✗${c.reset} ${c.red}Erro: LM Studio não conectado${c.reset}`);
+    setTimeout(() => process.exit(1), 2000);
+    return;
+  }
 
-    const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+  const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
 
-    // Confirmação real antes de qualquer comando de terminal rodar. Antes o
-    // agente executava PowerShell direto, sem perguntar nada — agora para e
-    // espera "s" do usuário antes de seguir.
-    setConfirmador((comando) => {
-      return new Promise((resolve) => {
-        process.stdout.write(`\n\n  ${c.bgRed}${c.white} ⚠ CONFIRMAR COMANDO ${c.reset}\n`);
-        process.stdout.write(`  ${c.yellow}${comando}${c.reset}\n`);
-        rl.question(`  ${c.bold}Executar? (s/N) ${c.reset}`, (resposta) => {
-          resolve(/^s(im)?$/i.test(resposta.trim()));
-        });
+  // Confirmação real antes de qualquer comando de terminal rodar. Antes o
+  // agente executava PowerShell direto, sem perguntar nada — agora para e
+  // espera "s" do usuário antes de seguir.
+  setConfirmador((comando) => {
+    return new Promise((resolve) => {
+      process.stdout.write(`\n\n  ${c.bgRed}${c.white} ⚠ CONFIRMAR COMANDO ${c.reset}\n`);
+      process.stdout.write(`  ${c.yellow}${comando}${c.reset}\n`);
+      rl.question(`  ${c.bold}Executar? (s/N) ${c.reset}`, (resposta) => {
+        resolve(/^s(im)?$/i.test(resposta.trim()));
       });
     });
+  });
 
-    const prompt = () => {
-      const { rows } = getTerminalSize();
-      moveCursor(rows, 1);
-      process.stdout.write(`${c.bgBlue}${c.white}${' '.repeat(getTerminalSize().cols)}${c.reset}`);
-      moveCursor(rows, 3);
-      
-      rl.question('', async (input) => {
-        const texto = input.trim();
-        if (!texto) return prompt();
+  const prompt = () => {
+    const { rows } = getTerminalSize();
+    moveCursor(rows, 1);
+    process.stdout.write(`${c.bgBlue}${c.white}${' '.repeat(getTerminalSize().cols)}${c.reset}`);
+    moveCursor(rows, 3);
+    
+    rl.question('', async (input) => {
+      const texto = input.trim();
+      if (!texto) return prompt();
 
-        // Comandos
-        if (texto === '/sair') {
-          clearScreen();
-          console.log(`\n  ${c.cyan}👋 Até logo!${c.reset}\n`);
-          rl.close();
-          process.exit(0);
-        }
-        if (texto === '/limpar') {
-          conversationHistory = [];
-          drawLayout();
-          return prompt();
-        }
-        if (texto === '/memoria') {
-          executeTool('consultar_memoria', { categoria: 'todas' }).then(mem => {
-            console.log(`\n\n  ${c.magenta}📝 Memória:${c.reset}\n  ${c.dim}${mem}${c.reset}`);
-            return prompt();
-          });
-          return;
-        }
-        if (texto === '/ferramentas') {
-          console.log(`\n\n  ${c.yellow}🔧 Ferramentas disponíveis:${c.reset}`);
-          tools.forEach(t => console.log(`    ${c.cyan}•${c.reset} ${t.function.name}`));
-          return prompt();
-        }
+      // Comandos
+      if (texto === '/sair') {
+        clearScreen();
+        console.log(`\n  ${c.cyan}👋 Até logo!${c.reset}\n`);
+        rl.close();
+        process.exit(0);
+      }
+      if (texto === '/limpar') {
+        conversationHistory = [];
+        drawLayout();
+        return prompt();
+      }
+      if (texto === '/memoria') {
+        const mem = await executeTool('consultar_memoria', { categoria: 'todas' });
+        console.log(`\n\n  ${c.magenta}📝 Memória:${c.reset}\n  ${c.dim}${mem}${c.reset}`);
+        return prompt();
+      }
+      if (texto === '/ferramentas') {
+        console.log(`\n\n  ${c.yellow}🔧 Ferramentas disponíveis:${c.reset}`);
+        tools.forEach(t => console.log(`    ${c.cyan}•${c.reset} ${t.function.name}`));
+        return prompt();
+      }
 
-        // Processar mensagem
-        try {
-          const resposta = await agenteLoop(texto, conversationHistory, aoChamarTool, aoPensar);
-          
-          // Mostrar resposta formatada
-          console.log(`\n\n  ${c.bgGreen}${c.white} 🤖 Agente ${c.reset}`);
-          console.log(`  ${c.dim}─${''.repeat(50)}${c.reset}`);
-          const linhas = formatResponse(resposta).split('\n');
-          for (const linha of linhas) {
-            console.log(`  ${linha}`);
-          }
-          console.log(`  ${c.dim}─${''.repeat(50)}${c.reset}`);
-        } catch (error) {
-          console.log(`\n\n  ${c.red}✗ Erro: ${error.message}${c.reset}`);
+      // Processar mensagem
+      try {
+        const resposta = await agenteLoop(texto, conversationHistory, aoChamarTool, aoPensar);
+        
+        // Mostrar resposta formatada
+        console.log(`\n\n  ${c.bgGreen}${c.white} 🤖 Agente ${c.reset}`);
+        console.log(`  ${c.dim}─${''.repeat(50)}${c.reset}`);
+        const linhas = formatResponse(resposta).split('\n');
+        for (const linha of linhas) {
+          console.log(`  ${linha}`);
         }
+        console.log(`  ${c.dim}─${''.repeat(50)}${c.reset}`);
+      } catch (error) {
+        console.log(`\n\n  ${c.red}✗ Erro: ${error.message}${c.reset}`);
+      }
 
-        prompt();
-      });
-    };
+      prompt();
+    });
+  };
 
-    prompt();
-  } catch (erroGeral) {
-    clearScreen();
-    console.log(`\n${c.red}✗ ERRO GERAL: ${erroGeral.message}${c.reset}`);
-    console.log(`${c.dim}${erroGeral.stack}${c.reset}`);
-    console.log(`\n${c.yellow}Pressione Enter para sair...${c.reset}`);
-    process.stdin.once('data', () => process.exit(1));
-  }
+  prompt();
 }
 
 // Redimensionamento
