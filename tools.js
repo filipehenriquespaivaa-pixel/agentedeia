@@ -21,6 +21,99 @@ const MEMORY_FILE = path.join(process.cwd(), 'memoria.json');
 const CATEGORIAS_VALIDAS = ['fatos', 'preferencias', 'projetos', 'notas'];
 const MEMORY_PADRAO = { fatos: [], preferencias: {}, projetos: [], notas: [] };
 
+// ============ LIMPEZA DE MEMÓRIA ============
+// Funções para gerenciar e limpar memória antiga, evitando confusão entre projetos
+
+export function limparMemoriaCompleta() {
+  try {
+    saveMemory(structuredClone(MEMORY_PADRAO));
+    return true;
+  } catch (e) {
+    return false;
+  }
+}
+
+export function limparCategoria(categoria) {
+  if (!CATEGORIAS_VALIDAS.includes(categoria)) {
+    return false;
+  }
+  try {
+    const memoria = loadMemory();
+    if (categoria === 'preferencias') {
+      memoria.preferencias = {};
+    } else {
+      memoria[categoria] = [];
+    }
+    return saveMemory(memoria);
+  } catch (e) {
+    return false;
+  }
+}
+
+export function removerItemMemoria(categoria, chave) {
+  if (!CATEGORIAS_VALIDAS.includes(categoria)) {
+    return false;
+  }
+  try {
+    const memoria = loadMemory();
+    if (categoria === 'preferencias') {
+      delete memoria.preferencias[chave];
+    } else {
+      memoria[categoria] = memoria[categoria].filter(item => item.chave !== chave);
+    }
+    return saveMemory(memoria);
+  } catch (e) {
+    return false;
+  }
+}
+
+export function limparProjetosAntigos(diasLimite = 7) {
+  try {
+    const memoria = loadMemory();
+    const agora = Date.now();
+    const milissegundosPorDia = 24 * 60 * 60 * 1000;
+    const limite = agora - (diasLimite * milissegundosPorDia);
+    
+    memoria.projetos = memoria.projetos.filter(projeto => {
+      const dataProjeto = new Date(projeto.data).getTime();
+      return dataProjeto > limite;
+    });
+    
+    return saveMemory(memoria);
+  } catch (e) {
+    return false;
+  }
+}
+
+export function limparNotasAntigas(diasLimite = 7) {
+  try {
+    const memoria = loadMemory();
+    const agora = Date.now();
+    const milissegundosPorDia = 24 * 60 * 60 * 1000;
+    const limite = agora - (diasLimite * milissegundosPorDia);
+    
+    memoria.notas = memoria.notas.filter(nota => {
+      const dataNota = new Date(nota.data).getTime();
+      return dataNota > limite;
+    });
+    
+    return saveMemory(memoria);
+  } catch (e) {
+    return false;
+  }
+}
+
+export function getEstatisticasMemoria() {
+  const memoria = loadMemory();
+  return {
+    fatos: memoria.fatos.length,
+    preferencias: Object.keys(memoria.preferencias).length,
+    projetos: memoria.projetos.length,
+    notas: memoria.notas.length,
+    total: memoria.fatos.length + Object.keys(memoria.preferencias).length + memoria.projetos.length + memoria.notas.length
+  };
+}
+
 // ============ INICIALIZAÇÃO AUTOMÁTICA ============
 // Verifica e cria pasta de projetos e arquivo de memória se não existirem
 function inicializarEstrutura() {
@@ -348,6 +441,23 @@ export const tools = [
         required: ['nome', 'tipo']
       }
     }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'limpar_memoria',
+      description: 'Limpa dados da memória persistente. Use para remover informações antigas que podem estar causando confusão entre projetos diferentes. Modos disponíveis: completa (remove tudo), categoria (remove uma categoria inteira), item (remove um item específico), projetos-antigos (remove projetos com mais de N dias), notas-antigas (remove notas com mais de N dias), estatisticas (mostra quantos itens tem em cada categoria).',
+      parameters: {
+        type: 'object',
+        properties: {
+          modo: { type: 'string', enum: ['completa', 'categoria', 'item', 'projetos-antigos', 'notas-antigas', 'estatisticas'], description: 'Tipo de limpeza' },
+          categoria: { type: 'string', description: 'Categoria alvo (para modo "categoria" ou "item")' },
+          chave: { type: 'string', description: 'Chave do item (para modo "item")' },
+          dias: { type: 'number', description: 'Número de dias para considerar antigo (para modos "projetos-antigos" e "notas-antigas", padrão: 7)' }
+        },
+        required: ['modo']
+      }
+    }
   }
 ];
 
@@ -370,6 +480,7 @@ const ARGS_OBRIGATORIOS = {
   abrir_programa: ['programa'],
   salvar_memoria: ['categoria', 'chave', 'valor'],
   criar_projeto: ['nome', 'tipo'],
+  limpar_memoria: ['modo'],
 };
 
 export async function executeTool(name, args) {
@@ -397,6 +508,7 @@ export async function executeTool(name, args) {
       case 'salvar_memoria': return toolSalvarMemoria(args.categoria, args.chave, args.valor);
       case 'consultar_memoria': return toolConsultarMemoria(args.categoria);
       case 'criar_projeto': return await toolCriarProjeto(args.nome, args.tipo, args.localizacao);
+      case 'limpar_memoria': return toolLimparMemoria(args.modo, { categoria: args.categoria, chave: args.chave, dias: args.dias });
       default: return `Ferramenta desconhecida: ${name}`;
     }
   } catch (error) {
@@ -602,6 +714,46 @@ function toolConsultarMemoria(categoria) {
     return `Categoria inválida: "${categoria}". Use uma de: ${CATEGORIAS_VALIDAS.join(', ')}, ou "todas".`;
   }
   return JSON.stringify(memoria[categoria] || [], null, 2);
+}
+
+function toolLimparMemoria(modo, detalhes) {
+  if (modo === 'completa') {
+    const ok = limparMemoriaCompleta();
+    return ok ? 'Memória completamente limpa. Todos os dados foram removidos.' : 'Erro ao limpar memória completa.';
+  }
+  
+  if (modo === 'categoria') {
+    const categoria = detalhes;
+    if (!categoria) return 'Erro: é necessário especificar qual categoria limpar (fatos, preferencias, projetos ou notas).';
+    const ok = limparCategoria(categoria);
+    return ok ? `Categoria "${categoria}" limpa.` : `Erro ao limpar categoria "${categoria}".`;
+  }
+  
+  if (modo === 'item') {
+    const { categoria, chave } = detalhes || {};
+    if (!categoria || !chave) return 'Erro: é necessário especificar categoria e chave do item a remover.';
+    const ok = removerItemMemoria(categoria, chave);
+    return ok ? `Item "${chave}" removido de "${categoria}".` : `Erro ao remover item "${chave}" de "${categoria}".`;
+  }
+  
+  if (modo === 'projetos-antigos') {
+    const dias = detalhes?.dias || 7;
+    const ok = limparProjetosAntigos(dias);
+    return ok ? `Projetos com mais de ${dias} dias removidos.` : 'Erro ao limpar projetos antigos.';
+  }
+  
+  if (modo === 'notas-antigas') {
+    const dias = detalhes?.dias || 7;
+    const ok = limparNotasAntigas(dias);
+    return ok ? `Notas com mais de ${dias} dias removidas.` : 'Erro ao limpar notas antigas.';
+  }
+  
+  if (modo === 'estatisticas') {
+    const stats = getEstatisticasMemoria();
+    return `Estatísticas da memória:\\n- Fatos: ${stats.fatos}\\n- Preferências: ${stats.preferencias}\\n- Projetos: ${stats.projetos}\\n- Notas: ${stats.notas}\\n- Total: ${stats.total}`;
+  }
+  
+  return 'Modo de limpeza desconhecido. Use: completa, categoria, item, projetos-antigos, notas-antigas ou estatisticas.';
 }
 
 async function toolCriarProjeto(nome, tipo, localizacao = WORKSPACE) {

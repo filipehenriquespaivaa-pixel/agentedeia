@@ -99,7 +99,7 @@ function drawSidebar() {
   moveCursor(cmdRow + 1, sidebarCol);
   process.stdout.write(`${c.gray}│${c.reset}${c.bold}${c.yellow} ⌨ COMANDOS ${' '.repeat(LAYOUT.sidebarWidth - 14)}${c.gray}│${c.reset}`);
   
-  const cmds = ['/limpar', '/memoria', '/ferramentas', '/sair'];
+  const cmds = ['/limpar', '/memoria', '/ferramentas', '/limpar-memoria', '/sair'];
   for (let i = 0; i < cmds.length; i++) {
     moveCursor(cmdRow + 2 + i, sidebarCol);
     const cmd = cmds[i].padEnd(LAYOUT.sidebarWidth - 4);
@@ -230,6 +230,22 @@ async function main() {
       if (texto === '/ferramentas') {
         console.log(`\n\n  ${c.yellow}🔧 Ferramentas disponíveis:${c.reset}`);
         tools.forEach(t => console.log(`    ${c.cyan}•${c.reset} ${t.function.name}`));
+        return prompt();
+      }
+      if (texto.startsWith('/limpar-memoria')) {
+        const partes = texto.split(' ');
+        const modo = partes[1] || 'estatisticas';
+        const categoria = partes[2];
+        const chave = partes[3];
+        const dias = partes[2] ? parseInt(partes[2]) : 7;
+        
+        let args = { modo };
+        if (categoria) args.categoria = categoria;
+        if (chave) args.chave = chave;
+        if (!isNaN(dias) && (modo === 'projetos-antigos' || modo === 'notas-antigas')) args.dias = dias;
+        
+        const resultado = await executeTool('limpar_memoria', args);
+        console.log(`\n\n  Limpeza de memória:\n  ${resultado}`);
         return prompt();
       }
 
