@@ -181,10 +181,7 @@ async function main() {
     const data = await res.json();
     const models = data.data || [];
     
-    drawLayout();
-    const { rows } = getTerminalSize();
-    moveCursor(rows, 1);
-    process.stdout.write(`  ${c.green}✓${c.reset} ${c.dim}Conectado: ${models.length} modelos${c.reset}`);
+    // Conectado com sucesso, continua para criar arquivos...
   } catch (erro) {
     console.log(`${c.red}✗ ERRO: LM Studio não conectado${c.reset}`);
     console.log(`${c.dim}URL configurada: ${LM_STUDIO_BASE}${c.reset}`);
@@ -211,6 +208,12 @@ async function main() {
     setTimeout(() => process.exit(1), 2000);
     return;
   }
+
+  // ============ 3º: DESENHAR LAYOUT APÓS CRIAR ARQUIVOS ============
+  drawLayout();
+  const { rows } = getTerminalSize();
+  moveCursor(rows, 1);
+  process.stdout.write(`${c.dim}  Agente pronto. Digite sua mensagem ou /ajuda${c.reset}`);
 
   const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
 
