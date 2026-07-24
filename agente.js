@@ -271,8 +271,9 @@ async function planejar(conversationHistory, systemPrompt, mensagemUsuario, arqu
       'Se TIPO for "codigo", continue com:\n' +
       'TAMANHO: pequeno | grande  (pequeno = cabe bem em 1-2 arquivos; grande = melhor dividir em módulos/arquivos separados)\n' +
       'ARQUIVOS:\n' +
-      '- caminho/do/arquivo.ext: o que esse arquivo faz\n' +
+      '- CAMINHO_COMPLETO_ABSOLUTO/arquivo.ext: o que esse arquivo faz\n' +
       '(uma linha por arquivo que será criado ou modificado; se for editar um arquivo existente, diga o que muda nele; SE O USUÁRIO MENCIONOU UM CAMINHO COMPLETO, USE ESSE CAMINHO EXATO AQUI)\n' +
+      '⚠️ REGRA CRÍTICA: NUNCA liste apenas o nome do arquivo (ex: "main.js"). SEMPRE inclua o caminho completo absoluto.\n' +
       'LÓGICA:\n' +
       '- lógica principal (loop do jogo, colisão, controles, regras, fluxo de dados, etc.)\n' +
       '- se TAMANHO for "grande": quais são as funções/módulos principais, o que cada um faz, e como eles se conectam\n' +
@@ -280,8 +281,9 @@ async function planejar(conversationHistory, systemPrompt, mensagemUsuario, arqu
       'Se TIPO for "narrativo" (história, roteiro, poema, texto livre), continue com:\n' +
       'TAMANHO: pequeno | grande  (pequeno = 1 arquivo único; grande = precisa de múltiplas chamadas sequenciais no mesmo arquivo)\n' +
       'ARQUIVOS:\n' +
-      '- caminho/do/arquivo.ext: o que esse arquivo contém (use UM ÚNICO arquivo para toda a história, ex: historia.txt)\n' +
+      '- CAMINHO_COMPLETO_ABSOLUTO/arquivo.ext: o que esse arquivo contém (use UM ÚNICO arquivo para toda a história, ex: historia.txt)\n' +
       '(se TAMANHO for "grande", o conteúdo será gerado em PARTES: INÍCIO, MEIO e FIM, usando editar_arquivo para acumular no mesmo arquivo)\n' +
+      '⚠️ REGRA CRÍTICA: NUNCA liste apenas o nome do arquivo (ex: "historia.txt"). SEMPRE inclua o caminho completo absoluto (ex: "D:\\\\ia local\\\\agente-ia\\\\projetos_ia\\\\historia.txt").\n' +
       'ESTRUTURA DO CONTEÚDO (importante para geração em partes):\n' +
       '- Início: o que apresenta/estabelece (será gerado e salvo primeiro)\n' +
       '- Meio: o que se desenvolve ou complica (será adicionado após o início via editar_arquivo)\n' +
