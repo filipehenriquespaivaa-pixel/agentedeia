@@ -1,12 +1,1 @@
-```
-# Dependencies
-node_modules/
-
-# Editors
-.vscode/
-
-# Environment
-.env
-.env.local
-*.env.*
-```
+Nothing needs to be added to .gitignore since only a JavaScript source file (index.js) was modified and no build artifacts, dependencies, or temporary files were detected in the changes.

@@ -128,28 +128,14 @@ function drawLayout() {
   drawSidebar();
 }
 
-// ============ INICIALIZAÇÃO: Verificar e criar pasta de projetos e arquivo de memória ============
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-
-const PASTA_PROJETOS = path.join(__dirname, 'projetos_ia');
-const ARQUIVO_MEMORIA = path.join(__dirname, 'memoria.json');
-
-// Criar pasta de projetos se não existir
-if (!fs.existsSync(PASTA_PROJETOS)) {
-  fs.mkdirSync(PASTA_PROJETOS, { recursive: true });
-  console.log(`\n${c.green}✓${c.reset} ${c.dim}Pasta de projetos criada: ${PASTA_PROJETOS}${c.reset}`);
-}
-
-// Criar arquivo de memória se não existir
-if (!fs.existsSync(ARQUIVO_MEMORIA)) {
-  const memoriaInicial = { fatos: [], preferencias: [], projetos: [], notas: [] };
-  fs.writeFileSync(ARQUIVO_MEMORIA, JSON.stringify(memoriaInicial, null, 2));
-  console.log(`${c.green}✓${c.reset} ${c.dim}Arquivo de memória criado: ${ARQUIVO_MEMORIA}${c.reset}`);
-}
-
 // ============ ESTADO LOCAL DO CLI ============
 let conversationHistory = [];
+
+// Variáveis de inicialização (serão usadas após conectar ao LM Studio)
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const PASTA_PROJETOS = path.join(__dirname, 'projetos_ia');
+const ARQUIVO_MEMORIA = path.join(__dirname, 'memoria.json');
 
 // Callback pra mostrar cada tool call na tela, chamado pelo agenteLoop compartilhado
 function aoChamarTool(funcName, funcArgs, status, resultado) {
@@ -188,22 +174,40 @@ function formatResponse(text) {
 }
 
 async function main() {
-  drawLayout();
-  
-  // Verificar conexão
+  // ============ 1º: VERIFICAR CONEXÃO COM LM STUDIO ============
   try {
     const res = await fetch(LM_STUDIO_BASE + '/v1/models', { headers: getHeaders() });
     if (!res.ok) throw new Error();
     const data = await res.json();
     const models = data.data || [];
     
+    drawLayout();
     const { rows } = getTerminalSize();
     moveCursor(rows, 1);
     process.stdout.write(`  ${c.green}✓${c.reset} ${c.dim}Conectado: ${models.length} modelos${c.reset}`);
-  } catch {
-    const { rows } = getTerminalSize();
-    moveCursor(rows, 1);
-    process.stdout.write(`  ${c.red}✗${c.reset} ${c.red}Erro: LM Studio não conectado${c.reset}`);
+  } catch (erro) {
+    console.log(`${c.red}✗ ERRO: LM Studio não conectado${c.reset}`);
+    console.log(`${c.dim}URL configurada: ${LM_STUDIO_BASE}${c.reset}`);
+    console.log(`${c.dim}Verifique se o servidor local do LM Studio está ativo${c.reset}`);
+    setTimeout(() => process.exit(1), 3000);
+    return;
+  }
+
+  // ============ 2º: VERIFICAR E CRIAR PASTA/ARQUIVO DE MEMÓRIA ============
+  try {
+    if (!fs.existsSync(PASTA_PROJETOS)) {
+      fs.mkdirSync(PASTA_PROJETOS, { recursive: true });
+      console.log(`\n${c.green}✓${c.reset} ${c.dim}Pasta de projetos criada: ${PASTA_PROJETOS}${c.reset}`);
+    }
+
+    if (!fs.existsSync(ARQUIVO_MEMORIA)) {
+      const memoriaInicial = { fatos: [], preferencias: [], projetos: [], notas: [] };
+      fs.writeFileSync(ARQUIVO_MEMORIA, JSON.stringify(memoriaInicial, null, 2));
+      console.log(`${c.green}✓${c.reset} ${c.dim}Arquivo de memória criado: ${ARQUIVO_MEMORIA}${c.reset}`);
+    }
+  } catch (erro) {
+    console.error(`${c.red}✗ ERRO AO INICIALIZAR ARQUIVOS:${c.reset} ${erro.message}`);
+    console.error(`${c.dim}Caminho atual: ${__dirname}${c.reset}`);
     setTimeout(() => process.exit(1), 2000);
     return;
   }
