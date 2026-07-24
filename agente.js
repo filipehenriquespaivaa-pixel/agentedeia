@@ -71,6 +71,8 @@ Regras:
 - Se você fez um plano com uma lista de arquivos, crie/edite TODOS os arquivos listados antes de considerar a tarefa concluída.
 - ANTES de começar um NOVO projeto, verifique se há informações antigas na memória que possam causar confusão. Se encontrar dados de projetos anteriores que não têm relação com o pedido atual, use limpar_memoria para remover essas informações antigas primeiro.
 - Quando o usuário pedir para criar histórias, contos ou textos narrativos: NUNCA repita exemplos de histórias anteriores. Cada história deve ser ORIGINAL e única. Use a estrutura narrativa (início, meio, fim) mas crie personagens, enredo e situações novas.
+- PARA TEXTOS NARRATIVOS LONGOS (histórias, roteiros, contos): crie UM ÚNICO arquivo (ex: historia.txt). Para evitar timeouts do LLM, gere o conteúdo EM PARTES SEQUENCIAIS: (1) gere e salve o INÍCIO no arquivo, (2) use editar_arquivo para adicionar o MEIO logo após, (3) use editar_arquivo novamente para adicionar o FIM. Nunca divida em múltiplos arquivos (inicio.txt, meio.txt, fim.txt) a menos que o usuário peça explicitamente.
+- Se a tarefa for longa demais e estiver causando timeout, quebre em etapas menores mas sempre trabalhando no MESMO arquivo, usando editar_arquivo para acumular conteúdo gradualmente.
 - Depois de terminar um projeto/arquivo importante, salve um resumo curto em salvar_memoria (categoria "projetos") com o que foi feito — isso vira contexto automático nas próximas conversas.${blocoMemoria}`;
 }
 
@@ -83,14 +85,24 @@ export async function chamarLLM(messages, opcoes = {}) {
   // menos propensos a "esquecer" partes do arquivo no meio do caminho.
   const maxTokens = opcoes.maxTokens ?? -1;
   const temperature = opcoes.temperature ?? 0.7;
+  // Timeout configurável: geração de conteúdo pode demorar bastante em modelos
+  // locais pequenos, especialmente pra textos longos. Padrão: 120 segundos.
+  const timeoutMs = opcoes.timeout ?? 120000;
   let response;
   try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
     response = await fetch(LM_STUDIO_URL, {
       method: 'POST',
       headers: getHeaders(),
-      body: JSON.stringify({ model: MODEL, messages, tools, tool_choice: toolChoice, temperature, max_tokens: maxTokens })
+      body: JSON.stringify({ model: MODEL, messages, tools, tool_choice: toolChoice, temperature, max_tokens: maxTokens }),
+      signal: controller.signal
     });
+    clearTimeout(timeoutId);
   } catch (e) {
+    if (e.name === 'AbortError') {
+      throw new Error(`Timeout: o LM Studio demorou mais de ${timeoutMs/1000}s para responder. Tente reduzir o tamanho da tarefa ou use um modelo mais rápido.`);
+    }
     throw new Error(`Não foi possível conectar ao LM Studio em ${LM_STUDIO_BASE}. Ele está aberto e com o servidor local ligado? (${e.message})`);
   }
   if (!response.ok) {
@@ -266,10 +278,14 @@ async function planejar(conversationHistory, systemPrompt, mensagemUsuario, arqu
       '- se TAMANHO for "grande": quais são as funções/módulos principais, o que cada um faz, e como eles se conectam\n' +
       '- como o usuário interage com o sistema (o que ele vê na tela, o que clica, o que digita)\n\n' +
       'Se TIPO for "narrativo" (história, roteiro, poema, texto livre), continue com:\n' +
-      'ESTRUTURA:\n' +
-      '- Início: o que apresenta/estabelece\n' +
-      '- Meio: o que se desenvolve ou complica\n' +
-      '- Fim: como resolve, de um jeito que faça sentido com o início e o meio\n\n' +
+      'TAMANHO: pequeno | grande  (pequeno = 1 arquivo único; grande = precisa de múltiplas chamadas sequenciais no mesmo arquivo)\n' +
+      'ARQUIVOS:\n' +
+      '- caminho/do/arquivo.ext: o que esse arquivo contém (use UM ÚNICO arquivo para toda a história, ex: historia.txt)\n' +
+      '(se TAMANHO for "grande", o conteúdo será gerado em PARTES: INÍCIO, MEIO e FIM, usando editar_arquivo para acumular no mesmo arquivo)\n' +
+      'ESTRUTURA DO CONTEÚDO (importante para geração em partes):\n' +
+      '- Início: o que apresenta/estabelece (será gerado e salvo primeiro)\n' +
+      '- Meio: o que se desenvolve ou complica (será adicionado após o início via editar_arquivo)\n' +
+      '- Fim: como resolve (será adicionado por último via editar_arquivo)\n\n' +
       'Se TIPO for "pesquisa", continue com:\n' +
       'PERGUNTAS A RESPONDER:\n' +
       '- liste as perguntas concretas que a pesquisa precisa responder\n\n' +
@@ -418,7 +434,8 @@ async function gerarConteudoArquivo(caminho, descricao, logica, resultadoEsperad
   // Temperatura mais baixa que a conversa normal: gera código mais
   // consistente e determinístico, o que ajuda modelos pequenos a não
   // "perder o fio" no meio de um arquivo maior.
-  const resposta = await chamarLLM(msgs, { toolChoice: 'none', temperature: 0.3 });
+  // Timeout estendido pra 180s: geração de texto longo pode demorar bastante
+  const resposta = await chamarLLM(msgs, { toolChoice: 'none', temperature: 0.3, timeout: 180000 });
   const texto = resposta.choices[0]?.message?.content || '';
   return extrairBlocoCodigo(texto);
 }
@@ -636,9 +653,65 @@ async function executarEtapasProjeto(projeto, systemPrompt, conversationHistory,
   const logica = projeto.logica || '';
   const resultadoEsperado = projeto.resultadoEsperado || '';
   const pendentes = estado.etapasPendentes(projeto);
+  const ehNarrativo = projeto.tipo === 'narrativo';
+  const tamanhoGrande = projeto.tamanho === 'grande';
 
   for (const etapa of pendentes) {
     const { caminho, descricao, id } = etapa;
+    
+    // Para narrativos grandes: gerar em partes (início, meio, fim) acumulando no mesmo arquivo
+    if (ehNarrativo && tamanhoGrande) {
+      let conteudoCompleto = '';
+      const partes = ['INÍCIO', 'MEIO', 'FIM'];
+      
+      for (let i = 0; i < partes.length; i++) {
+        const parte = partes[i];
+        const instrucaoParte = `Gere apenas a parte do ${parte} da história. ${parte === 'INÍCIO' ? 'Crie o arquivo do zero.' : 'Este conteúdo será adicionado APÓS o conteúdo já gerado usando editar_arquivo.'}`;
+        
+        if (onToolCall) onToolCall('gerando_arquivo', { caminho, parte }, 'running');
+        let conteudoParte = await gerarConteudoArquivo(caminho, `${descricao} - Parte ${parte}: ${instrucaoParte}`, logica, resultadoEsperado, conteudosGerados, systemPrompt, conversationHistory);
+        
+        if (conteudoParte && conteudoParte.trim().length >= CONTEUDO_MINIMO_ACEITAVEL) {
+          conteudoCompleto += (conteudoCompleto ? '\n\n' : '') + conteudoParte;
+          
+          // Salva progressivamente: primeiro cria, depois usa editar para acumular
+          const caminhoCompleto = path.isAbsolute(caminho) ? caminho : path.join(WORKSPACE, caminho);
+          if (i === 0) {
+            // Primeira parte: cria o arquivo
+            const resultado = await executeTool('criar_arquivo', { caminho: caminhoCompleto, conteudo: conteudoCompleto });
+            if (onToolCall) onToolCall('criar_arquivo', { caminho: caminhoCompleto }, 'done', resultado);
+          } else {
+            // Partes seguintes: usa editar_arquivo para adicionar ao final
+            const ultimoConteudo = conteudosGerados[caminho] || '';
+            const novoConteudo = ultimoConteudo + '\n\n' + conteudoParte;
+            const resultado = await executeTool('editar_arquivo', { caminho: caminhoCompleto, busca: '', substituicao: novoConteudo });
+            if (onToolCall) onToolCall('editar_arquivo', { caminho: caminhoCompleto, operacao: 'adicionar_fim' }, 'done', resultado);
+            conteudoCompleto = novoConteudo;
+          }
+          
+          conteudosGerados[caminho] = conteudoCompleto;
+          if (onToolCall) onToolCall('gerando_arquivo', { caminho, parte }, 'done', `${parte} concluída (${conteudoParte.length} chars)`);
+        }
+      }
+      
+      // Revisão final do arquivo completo
+      if (conteudoCompleto.length >= CONTEUDO_MINIMO_ACEITAVEL) {
+        if (onToolCall) onToolCall('revisando_arquivo', { caminho }, 'running');
+        const conteudoRevisado = await revisarArquivoGerado(caminho, conteudoCompleto, descricao, logica, resultadoEsperado, conteudosGerados, systemPrompt, conversationHistory, projeto);
+        if (onToolCall) onToolCall('revisando_arquivo', { caminho }, 'done', 'Revisão concluída.');
+        
+        // Atualiza o arquivo com a versão revisada
+        const caminhoCompleto = path.isAbsolute(caminho) ? caminho : path.join(WORKSPACE, caminho);
+        await executeTool('criar_arquivo', { caminho: caminhoCompleto, conteudo: conteudoRevisado });
+        conteudosGerados[caminho] = conteudoRevisado;
+      }
+      
+      arquivosCriados.add(nomeBase(caminho));
+      estado.marcarEtapaConcluida(projeto, id);
+      continue; // pula para a próxima etapa
+    }
+    
+    // Fluxo normal (não-narrativo ou narrativo pequeno)
     if (onToolCall) onToolCall('gerando_arquivo', { caminho }, 'running');
     let conteudo = await gerarConteudoArquivo(caminho, descricao, logica, resultadoEsperado, conteudosGerados, systemPrompt, conversationHistory);
 
@@ -888,9 +961,11 @@ export async function agenteLoop(mensagemUsuario, conversationHistory, onToolCal
       // fechamento do programa. Isso substitui a antiga dependência de o
       // modelo chamar criar_arquivo via tool_calls e de tudo viver só na RAM.
       const nomeProjeto = inferirNomeProjeto(mensagemUsuario, arquivosComDescricao);
-      const projetoNovo = estado.criarProjeto(nomeProjeto, mensagemUsuario, arquivosComDescricao, logica, resultadoEsperado, tamanho);
+      // Extrai o TIPO do plano (codigo | narrativo | pesquisa) pra passar pro estado
+      const tipoPlano = plano.match(/TIPO:\s*(codigo|narrativo|pesquisa)/i)?.[1]?.toLowerCase() || '';
+      const projetoNovo = estado.criarProjeto(nomeProjeto, mensagemUsuario, arquivosComDescricao, logica, resultadoEsperado, tamanho, tipoPlano);
       projetoAtual = projetoNovo;
-      estado.registrarDecisao(projetoNovo, `Plano criado (tamanho: ${tamanho || 'não especificado'}) com ${arquivosComDescricao.length} etapa(s) a partir do pedido: "${mensagemUsuario.trim().slice(0, 100)}".`);
+      estado.registrarDecisao(projetoNovo, `Plano criado (tipo: ${tipoPlano || 'não especificado'}, tamanho: ${tamanho || 'não especificado'}) com ${arquivosComDescricao.length} etapa(s) a partir do pedido: "${mensagemUsuario.trim().slice(0, 100)}".`);
       if (onToolCall) onToolCall('projeto_criado', { projeto: nomeProjeto, etapas: arquivosComDescricao.length }, 'done', `Projeto "${nomeProjeto}" registrado com ${arquivosComDescricao.length} etapa(s)${resultadoEsperado ? ' — resultado esperado: ' + resultadoEsperado : ''}.`);
 
       await executarEtapasProjeto(projetoNovo, systemPrompt, conversationHistory, onToolCall, conteudosGerados, arquivosCriados);
