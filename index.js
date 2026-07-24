@@ -1,4 +1,7 @@
 import readline from 'readline';
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
 import { tools, executeTool, setConfirmador } from './tools.js';
 import { MODEL, LM_STUDIO_BASE, getHeaders, agenteLoop } from './agente.js';
 
@@ -123,6 +126,26 @@ function drawLayout() {
   clearScreen();
   drawHeader();
   drawSidebar();
+}
+
+// ============ INICIALIZAÇÃO: Verificar e criar pasta de projetos e arquivo de memória ============
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+const PASTA_PROJETOS = path.join(__dirname, 'projetos_ia');
+const ARQUIVO_MEMORIA = path.join(__dirname, 'memoria.json');
+
+// Criar pasta de projetos se não existir
+if (!fs.existsSync(PASTA_PROJETOS)) {
+  fs.mkdirSync(PASTA_PROJETOS, { recursive: true });
+  console.log(`\n${c.green}✓${c.reset} ${c.dim}Pasta de projetos criada: ${PASTA_PROJETOS}${c.reset}`);
+}
+
+// Criar arquivo de memória se não existir
+if (!fs.existsSync(ARQUIVO_MEMORIA)) {
+  const memoriaInicial = { fatos: [], preferencias: [], projetos: [], notas: [] };
+  fs.writeFileSync(ARQUIVO_MEMORIA, JSON.stringify(memoriaInicial, null, 2));
+  console.log(`${c.green}✓${c.reset} ${c.dim}Arquivo de memória criado: ${ARQUIVO_MEMORIA}${c.reset}`);
 }
 
 // ============ ESTADO LOCAL DO CLI ============
