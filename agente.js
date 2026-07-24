@@ -285,14 +285,33 @@ async function planejar(conversationHistory, systemPrompt, mensagemUsuario, arqu
 function extrairArquivosComDescricaoDoPlano(plano) {
   const arquivos = [];
   const vistos = new Set();
-  const regexLinha = /^\s*-\s*([^\s:][^:]*\.\w+)\s*:\s*(.*)$/gm;
-  let match;
-  while ((match = regexLinha.exec(plano)) !== null) {
-    const caminho = match[1].trim();
+  const linhas = plano.split('\n');
+  
+  for (const linha of linhas) {
+    if (!linha.trim().startsWith('-')) continue;
+    
+    // Remove o '-' inicial e o espaço após ele
+    const conteudo = linha.trim().substring(1).trim();
+    
+    // Procura por um padrão onde temos um caminho com extensão seguido por ": descrição"
+    // A chave aqui é encontrar a EXTENSÃO do arquivo (.txt, .js, .html, etc.) e depois
+    // procurar o primeiro ":" após essa extensão — esse é o separador caminho/descrição
+    const matchArquivo = conteudo.match(/^(.+?\.\w+)\s*:\s*(.*)$/);
+    if (!matchArquivo) continue;
+    
+    const caminho = matchArquivo[1].trim();
+    const descricao = matchArquivo[2].trim();
+    
+    // Valida que parece ser um caminho de arquivo (tem extensão válida)
+    if (!/\.[a-zA-Z0-9]+$/.test(caminho)) continue;
+    
+    // Evita duplicatas
     if (vistos.has(caminho)) continue;
     vistos.add(caminho);
-    arquivos.push({ caminho, descricao: (match[2] || '').trim() });
+    
+    arquivos.push({ caminho, descricao });
   }
+  
   return arquivos;
 }
 
