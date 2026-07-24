@@ -65,6 +65,7 @@ Regras:
 - Workspace: ${WORKSPACE}
 - PowerShell: use ; não &&
 - IMPORTANTE: se o usuário pedir algo funcional (um jogo, uma calculadora, um site específico, um script que faz algo), você MESMO escreve o código completo (HTML/CSS/JS/Python/etc) e salva com criar_arquivo. NUNCA use criar_projeto pra esse tipo de pedido — ela só cria um esqueleto vazio sem nenhuma lógica, e não serve como substituto de escrever o código de verdade.
+- Quando o usuário mencionar um CAMINHO COMPLETO (ex: "D:\pasta\arquivo.txt" ou "C:\Users\...\teste"), USE ESSE CAMINHO EXATO ao chamar criar_arquivo. Não invente outros locais e não ignore o caminho pedido.
 - Prefira editar_arquivo a criar_arquivo quando for uma mudança pontual (uma função, uma linha, um trecho) em um arquivo que já existe e é grande — reescrever o arquivo inteiro pra uma mudança pequena desperdiça contexto e aumenta a chance de erro. Use criar_arquivo quando o arquivo for novo ou a mudança for extensa o bastante que vale reescrever tudo.
 - Se editar_arquivo falhar dizendo que o trecho de busca não foi encontrado ou aparece mais de uma vez, use ler_arquivo pra conferir o conteúdo real antes de tentar de novo — não adivinhe.
 - Se você fez um plano com uma lista de arquivos, crie/edite TODOS os arquivos listados antes de considerar a tarefa concluída.
@@ -211,8 +212,29 @@ async function lerArquivosMencionados(nomes) {
   return blocos.join('\n\n');
 }
 
+// Extrai CAMINHOS COMPLETOS de arquivos mencionados na mensagem (ex:
+// "salve em D:\ia local\projetos\teste.txt" ou "crie na pasta C:\Users\...").
+// Diferente de extrairPastaOuArquivoAbsoluto (que pega só o final da frase),
+// essa versão varre a mensagem inteira em busca de padrões de caminho do Windows.
+function extrairCaminhosCompletosDaMensagem(msg) {
+  const caminhos = [];
+  // Padrão 1: caminho absoluto do Windows completo (ex: D:\pasta\arquivo.txt)
+  const regex1 = /[A-Za-z]:\\[\w\s\\.-]+\.[a-zA-Z0-9]+/g;
+  let m;
+  while ((m = regex1.exec(msg)) !== null) {
+    caminhos.push(m[0].trim());
+  }
+  // Padrão 2: mencionado como "na pasta X" ou "no arquivo X" no fim da frase
+  const pastaOuArquivo = extrairPastaOuArquivoAbsoluto(msg);
+  if (pastaOuArquivo && !caminhos.includes(pastaOuArquivo)) {
+    caminhos.push(pastaOuArquivo);
+  }
+  return [...new Set(caminhos)];
+}
+
 async function planejar(conversationHistory, systemPrompt, mensagemUsuario, arquivosMencionados) {
   const contextoArquivos = await lerArquivosMencionados(arquivosMencionados);
+  const caminhosCompletos = extrairCaminhosCompletosDaMensagem(mensagemUsuario);
 
   // O formato do plano agora começa pedindo pro modelo CLASSIFICAR a tarefa
   // antes de planejar de fato — isso força uma etapa explícita de "pensar no
@@ -227,6 +249,9 @@ async function planejar(conversationHistory, systemPrompt, mensagemUsuario, arqu
       (contextoArquivos
         ? `Conteúdo atual dos arquivos mencionados pelo usuário (use isso como base real do que já existe — não invente o que já está aqui, e não recrie do zero o que já funciona):\n\n${contextoArquivos}\n\n`
         : '') +
+      (caminhosCompletos.length > 0
+        ? `⚠️ LOCALIZAÇÃO EXPLÍCITA PEDIDA PELO USUÁRIO: o usuário mencionou estes caminhos completos na mensagem: ${caminhosCompletos.join(', ')}. \nUSE ESSES CAMINHOS EXATOS (ou subpastas deles) quando listar os arquivos em "ARQUIVOS:". NÃO invente outros locais.\n\n`
+        : '') +
       'Antes de usar qualquer ferramenta, escreva um plano curto. Primeiro classifique a tarefa, depois siga o formato certo pra essa classificação.\n\n' +
       'Comece SEMPRE com estas duas linhas:\n' +
       'TIPO: codigo | narrativo | pesquisa  (escolha uma)\n' +
@@ -235,7 +260,7 @@ async function planejar(conversationHistory, systemPrompt, mensagemUsuario, arqu
       'TAMANHO: pequeno | grande  (pequeno = cabe bem em 1-2 arquivos; grande = melhor dividir em módulos/arquivos separados)\n' +
       'ARQUIVOS:\n' +
       '- caminho/do/arquivo.ext: o que esse arquivo faz\n' +
-      '(uma linha por arquivo que será criado ou modificado; se for editar um arquivo existente, diga o que muda nele)\n' +
+      '(uma linha por arquivo que será criado ou modificado; se for editar um arquivo existente, diga o que muda nele; SE O USUÁRIO MENCIONOU UM CAMINHO COMPLETO, USE ESSE CAMINHO EXATO AQUI)\n' +
       'LÓGICA:\n' +
       '- lógica principal (loop do jogo, colisão, controles, regras, fluxo de dados, etc.)\n' +
       '- se TAMANHO for "grande": quais são as funções/módulos principais, o que cada um faz, e como eles se conectam\n' +
@@ -367,6 +392,7 @@ async function gerarConteudoArquivo(caminho, descricao, logica, resultadoEsperad
       (resultadoEsperado ? `Resultado esperado do projeto inteiro (não perca isso de vista): ${resultadoEsperado}\n` : '') +
       (logica ? `Lógica geral do projeto:\n${logica}\n` : '') +
       (contextoIrmaos ? `\n${contextoIrmaos}\n` : '') +
+      '\n⚠️ IMPORTANTE: depois de escrever o conteúdo, ele será salvo AUTOMATICAMENTE neste caminho exato: "' + caminho + '". Não escreva instruções do tipo "salve em X" ou "crie em Y" — apenas o conteúdo puro do arquivo.\n' +
       '\nResponda com APENAS um bloco de código cercado por três crases (```), contendo o conteúdo INTEIRO e funcional do arquivo — sem placeholders do tipo "// resto do código aqui" ou "// implementar depois", e sem nenhum texto de explicação antes ou depois do bloco.'
   };
   const msgs = [{ role: 'system', content: systemPrompt }, ...conversationHistory, instrucao];
